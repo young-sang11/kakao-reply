@@ -1,0 +1,37 @@
+name: APK 빌드
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
+
+      - name: APK 만들기
+        run: gradle :app:assembleDebug --stacktrace
+
+      - name: 최신 버전으로 게시
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk kakao-reply.apk
+          gh release delete latest -y --cleanup-tag || true
+          gh release create latest kakao-reply.apk \
+            --title "AI 답장 0.1.${{ github.run_number }}" \
+            --notes "폰에서 kakao-reply.apk 를 눌러 내려받아 설치하세요."
