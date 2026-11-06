@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AI 답장</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<meta name="theme-color" content="#FEE500">
+<style>
+  :root { --bg:#f6f6f4; --card:#fff; --ink:#1d1d1b; --sub:#6b6b66; --line:#e3e3de; --y:#FEE500; --yk:#3C1E1E; --ok:#1a7f37; --bad:#c62828; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#141413; --card:#20201e; --ink:#f1f1ec; --sub:#a3a39c; --line:#33332f; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:17px/1.5 system-ui,-apple-system,"Noto Sans KR",sans-serif; }
+  header { background:var(--y); color:var(--yk); padding:14px 16px; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:2; }
+  header h1 { margin:0; font-size:20px; }
+  header button { background:transparent; border:0; font-size:15px; color:var(--yk); padding:6px 4px; }
+  main { padding:14px 16px 60px; max-width:640px; margin:0 auto; }
+  textarea, input { width:100%; font:inherit; color:var(--ink); background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; }
+  textarea { min-height:110px; resize:vertical; }
+  .row { display:flex; gap:8px; margin-top:10px; }
+  .btn { flex:1; font:inherit; font-weight:600; border:0; border-radius:12px; padding:14px; background:var(--y); color:var(--yk); }
+  .btn.ghost { background:var(--card); color:var(--ink); border:1px solid var(--line); font-weight:500; }
+  .btn:disabled { opacity:.5; }
+  .label { font-size:14px; color:var(--sub); margin:18px 0 6px; }
+  .reply { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px 14px; margin:8px 0; cursor:pointer; }
+  .reply .tone { font-size:13px; color:var(--sub); }
+  .reply .txt { font-size:18px; margin-top:2px; }
+  .reply.done { border-color:var(--ok); }
+  .reply.done .tone::after { content:"  ✓ 복사됨 — 카톡에 붙여넣으세요"; color:var(--ok); font-weight:600; }
+  .msg { font-size:15px; color:var(--sub); margin-top:10px; min-height:1em; }
+  .msg.bad { color:var(--bad); }
+  .panel { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; margin-top:12px; }
+  .panel p { margin:6px 0; font-size:15px; }
+  .hide { display:none; }
+  .spin { display:inline-block; width:18px; height:18px; border:3px solid var(--line); border-top-color:var(--yk); border-radius:50%; animation:r 0.8s linear infinite; vertical-align:-3px; margin-right:6px; }
+  @keyframes r { to { transform:rotate(360deg); } }
+</style>
+</head>
+<body>
+<header>
+  <h1>AI 답장</h1>
+  <button id="setBtn">⚙ 설정</button>
+</header>
+<main>
+  <!-- 설정 -->
+  <section id="settings" class="panel hide">
+    <p><b>Gemini API 키</b></p>
+    <input id="key" type="password" autocomplete="off" placeholder="키를 붙여넣으세요">
+    <p style="margin-top:12px"><b>내 정보·말투</b> (선택)</p>
+    <textarea id="style" style="min-height:70px" placeholder="예: 50대 남성. 지인에게는 존댓말, 짧게 답함"></textarea>
+    <div class="row">
+      <button class="btn" id="saveBtn">저장</button>
+      <button class="btn ghost" id="closeBtn">닫기</button>
+    </div>
+    <p style="color:var(--sub);font-size:13px">키는 이 폰에만 저장되고, 구글 AI 외에는 어디에도 보내지 않습니다.</p>
+  </section>
+
+  <!-- 받은 메시지 -->
+  <div class="label">받은 메시지</div>
+  <textarea id="input" placeholder="카톡·문자에서 메시지를 길게 눌러 공유 → AI 답장&#10;또는 복사한 뒤 아래 [붙여넣기]"></textarea>
+  <div class="row">
+    <button class="btn ghost" id="pasteBtn">붙여넣기</button>
+    <button class="btn" id="goBtn">답장 만들기</button>
+  </div>
+  <div id="msg" class="msg"></div>
+
+  <!-- 답장 후보 -->
+  <div id="outWrap" class="hide">
+    <div class="label">답장 후보 — 눌러서 복사</div>
+    <div id="out"></div>
+    <div class="row">
+      <button class="btn ghost" id="againBtn">다시 만들기</button>
+      <button class="btn ghost" id="clearBtn">새 메시지</button>
+    </div>
+  </div>
+
+  <!-- 처음 안내 -->
+  <section id="guide" class="panel">
+    <p><b>사용 방법</b></p>
+    <p>① 카톡·문자 메시지를 <b>길게 누르기 → 공유 → AI 답장</b><br>
+       (공유가 없으면 <b>복사</b> 후 이 앱에서 <b>붙여넣기</b>)</p>
+    <p>② 답장 5개 중 <b>하나 누르기</b> → 자동 복사</p>
+    <p>③ 카톡으로 돌아가 <b>붙여넣고 전송</b></p>
+    <p style="color:var(--sub);font-size:13px">여러 메시지를 함께 붙여넣으면 앞뒤 대화를 보고 더 정확히 답합니다.</p>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const MODEL = 'gemini-flash-latest';
+const store = {
+  get(k) { try { return localStorage.getItem(k) || ''; } catch { return ''; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch {} }
+};
+let mem = { key: store.get('key'), style: store.get('style') };
+
+function msg(t, bad) { $('msg').textContent = t || ''; $('msg').className = 'msg' + (bad ? ' bad' : ''); }
+function openSettings(show) {
+  $('settings').classList.toggle('hide', !show);
+  if (show) { $('key').value = mem.key; $('style').value = mem.style; }
+}
+
+$('setBtn').onclick = () => openSettings($('settings').classList.contains('hide'));
+$('closeBtn').onclick = () => openSettings(false);
+$('saveBtn').onclick = () => {
+  mem.key = $('key').value.trim(); mem.style = $('style').value.trim();
+  store.set('key', mem.key); store.set('style', mem.style);
+  openSettings(false); msg('저장했습니다.');
+};
+
+$('pasteBtn').onclick = async () => {
+  try {
+    const t = await navigator.clipboard.readText();
+    if (!t) return msg('복사된 내용이 없습니다.', true);
+    $('input').value = t.trim();
+    generate();
+  } catch {
+    msg('자동 붙여넣기가 막혀 있습니다. 입력칸을 길게 눌러 붙여넣기 해 주세요.', true);
+    $('input').focus();
+  }
+};
+$('goBtn').onclick = () => generate();
+$('againBtn').onclick = () => generate();
+$('clearBtn').onclick = () => {
+  $('input').value = ''; $('out').innerHTML = ''; $('outWrap').classList.add('hide');
+  $('guide').classList.remove('hide'); msg(''); $('input').focus();
+};
+
+function buildPrompt(text) {
+  return [
+    '당신은 사용자의 휴대폰 메시지에 대한 답장을 대신 써 주는 비서입니다.',
+    '아래는 사용자가 받은 카카오톡 또는 문자 메시지입니다. 여러 줄이면 앞부분은 이전 대화, 마지막 부분이 답장할 메시지입니다.',
+    '사용자가 보낼 답장 후보 5개를 한국어로 만드세요.',
+    '',
+    '규칙:',
+    '- 5개 말투를 각각 다르게: 정중한, 친근한, 간단한, 업무용, 배려하는 (tone 칸에 이 이름)',
+    '- 메시지 내용에 정확히 맞게. 질문이면 답하거나 확인하는 내용으로.',
+    '- 모르는 사실(시간, 장소, 금액, 일정)은 지어내지 말고 확인하거나 되묻기.',
+    '- 실제 메신저 답장처럼 자연스럽고 짧게(1~2문장). 답장 문장만.',
+    '- 상대와의 관계(존댓말/반말)를 파악해 맞추기.',
+    mem.style ? '\n사용자 정보·말투: ' + mem.style : '',
+    '',
+    '[받은 메시지]',
+    text
+  ].join('\n');
+}
+
+let busy = false;
+async function generate() {
+  const text = $('input').value.trim();
+  if (!text) return msg('메시지를 먼저 넣어 주세요.', true);
+  if (!mem.key) { openSettings(true); return msg('먼저 설정에서 API 키를 넣어 주세요.', true); }
+  if (busy) return;
+  busy = true; $('goBtn').disabled = true; $('againBtn').disabled = true;
+  $('msg').innerHTML = '<span class="spin"></span>답장 만드는 중...'; $('msg').className = 'msg';
+
+  const body = {
+    contents: [{ role: 'user', parts: [{ text: buildPrompt(text) }] }],
+    generationConfig: {
+      temperature: 0.8,
+      responseMimeType: 'application/json',
+      responseSchema: { type: 'ARRAY', items: { type: 'OBJECT',
+        properties: { tone: { type: 'STRING' }, text: { type: 'STRING' } }, required: ['tone', 'text'] } }
+    }
+  };
+  try {
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': mem.key },
+      body: JSON.stringify(body)
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(errText(r.status, data));
+    const parts = data.candidates?.[0]?.content?.parts || [];
+    let s = parts.filter(p => !p.thought).map(p => p.text || '').join('').trim();
+    s = s.replace(/^```(json)?/, '').replace(/```$/, '').trim();
+    const list = JSON.parse(s).filter(x => x.text && x.text.trim()).slice(0, 5);
+    if (!list.length) throw new Error('AI 응답에 답장이 없습니다.');
+    show(list); msg('');
+  } catch (e) {
+    msg(e.message === 'Failed to fetch' ? '인터넷 연결을 확인해 주세요.' : e.message, true);
+  } finally {
+    busy = false; $('goBtn').disabled = false; $('againBtn').disabled = false;
+  }
+}
+
+function errText(code, d) {
+  const m = d?.error?.message || '';
+  if (/API_KEY_INVALID|API key not valid/i.test(m) || code === 401) return 'API 키가 올바르지 않습니다. 설정에서 확인해 주세요.';
+  if (code === 403) return 'API 사용 권한이 없습니다. 키를 만든 프로젝트를 확인해 주세요.';
+  if (code === 429) return '사용 한도를 넘었습니다. 잠시 후 다시 시도하거나 크레딧 잔액을 확인해 주세요.';
+  if (code >= 500) return '구글 서버 오류입니다. 잠시 후 다시 시도해 주세요.';
+  return `오류 ${code}: ${m}`;
+}
+
+function show(list) {
+  const out = $('out'); out.innerHTML = '';
+  list.forEach((x, i) => {
+    const d = document.createElement('div'); d.className = 'reply';
+    const t = document.createElement('div'); t.className = 'tone'; t.textContent = `${i + 1}. ${x.tone || ''}`;
+    const b = document.createElement('div'); b.className = 'txt'; b.textContent = x.text.trim();
+    d.append(t, b);
+    d.onclick = () => copy(x.text.trim(), d);
+    out.appendChild(d);
+  });
+  $('outWrap').classList.remove('hide'); $('guide').classList.add('hide');
+}
+
+async function copy(text, el) {
+  try { await navigator.clipboard.writeText(text); }
+  catch {
+    const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta);
+    ta.select(); document.execCommand('copy'); ta.remove();
+  }
+  document.querySelectorAll('.reply.done').forEach(x => x.classList.remove('done'));
+  el.classList.add('done');
+  if (navigator.vibrate) navigator.vibrate(30);
+}
+
+// 공유로 들어온 메시지 받기
+(function fromShare() {
+  const p = new URLSearchParams(location.search);
+  const t = [p.get('title'), p.get('text'), p.get('url')].filter(Boolean).join('\n').trim();
+  if (t) {
+    $('input').value = t;
+    history.replaceState(null, '', location.pathname);
+    generate();
+  } else if (!mem.key) {
+    openSettings(true);
+  }
+})();
+
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+</script>
+</body>
+</html>
