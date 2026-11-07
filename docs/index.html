@@ -52,6 +52,11 @@
     <input id="key" type="password" autocomplete="off" placeholder="키를 붙여넣으세요">
     <p style="margin-top:12px"><b>내 정보·말투</b> (선택)</p>
     <textarea id="style" style="min-height:70px" placeholder="예: 50대 남성. 지인에게는 존댓말, 짧게 답함"></textarea>
+    <p style="margin-top:12px"><b>속도</b></p>
+    <select id="speed" style="width:100%;font:inherit;padding:12px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--ink)">
+      <option value="fast">빠른 모드 (기본)</option>
+      <option value="quality">정확 모드 (조금 느림, 더 꼼꼼함)</option>
+    </select>
     <div class="row">
       <button class="btn" id="saveBtn">저장</button>
       <button class="btn ghost" id="closeBtn">닫기</button>
@@ -104,24 +109,24 @@
 
 <script>
 const $ = id => document.getElementById(id);
-const MODEL = 'gemini-flash-latest';
 const store = {
   get(k) { try { return localStorage.getItem(k) || ''; } catch { return ''; } },
   set(k, v) { try { localStorage.setItem(k, v); } catch {} }
 };
-let mem = { key: store.get('key'), style: store.get('style') };
+let mem = { key: store.get('key'), style: store.get('style'), speed: store.get('speed') || 'fast' };
 
 function msg(t, bad) { $('msg').textContent = t || ''; $('msg').className = 'msg' + (bad ? ' bad' : ''); }
 function openSettings(show) {
   $('settings').classList.toggle('hide', !show);
-  if (show) { $('key').value = mem.key; $('style').value = mem.style; }
+  if (show) { $('key').value = mem.key; $('style').value = mem.style; $('speed').value = mem.speed; }
 }
 
 $('setBtn').onclick = () => openSettings($('settings').classList.contains('hide'));
 $('closeBtn').onclick = () => openSettings(false);
 $('saveBtn').onclick = () => {
   mem.key = $('key').value.trim(); mem.style = $('style').value.trim();
-  store.set('key', mem.key); store.set('style', mem.style);
+  mem.speed = $('speed').value;
+  store.set('key', mem.key); store.set('style', mem.style); store.set('speed', mem.speed);
   openSettings(false); msg('저장했습니다.');
 };
 
@@ -199,34 +204,56 @@ async function generate() {
   busy = true; $('goBtn').disabled = true; $('againBtn').disabled = true;
   $('msg').innerHTML = '<span class="spin"></span>답장 만드는 중...'; $('msg').className = 'msg';
 
-  const body = {
-    contents: [{ role: 'user', parts: [{ text: buildPrompt(text) }] }],
-    generationConfig: {
-      temperature: 0.8,
-      responseMimeType: 'application/json',
-      responseSchema: { type: 'ARRAY', items: { type: 'OBJECT',
-        properties: { tone: { type: 'STRING' }, text: { type: 'STRING' } }, required: ['tone', 'text'] } }
-    }
-  };
+  const prompt = buildPrompt(text);
+  const t0 = Date.now();
   try {
-    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': mem.key },
-      body: JSON.stringify(body)
-    });
-    const data = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(errText(r.status, data));
+    const data = await callAI(prompt);
     const parts = data.candidates?.[0]?.content?.parts || [];
     let s = parts.filter(p => !p.thought).map(p => p.text || '').join('').trim();
     s = s.replace(/^```(json)?/, '').replace(/```$/, '').trim();
     const list = JSON.parse(s).filter(x => x.text && x.text.trim()).slice(0, 5);
     if (!list.length) throw new Error('AI 응답에 답장이 없습니다.');
-    show(list); msg('');
+    show(list); msg(`${((Date.now() - t0) / 1000).toFixed(1)}초 · ${mem.speed === 'quality' ? '정확 모드' : '빠른 모드'}`);
   } catch (e) {
     msg(e.message === 'Failed to fetch' ? '인터넷 연결을 확인해 주세요.' : e.message, true);
   } finally {
     busy = false; $('goBtn').disabled = false; $('againBtn').disabled = false;
   }
+}
+
+// 빠른 모드: 가벼운 모델 + 생각 최소화. 지원 안 되는 설정이면 다음 후보로 자동 전환.
+const PLANS = {
+  fast: [
+    ['gemini-flash-lite-latest', 'minimal'], ['gemini-flash-lite-latest', null],
+    ['gemini-flash-latest', 'low'], ['gemini-flash-latest', null]
+  ],
+  quality: [['gemini-flash-latest', 'low'], ['gemini-flash-latest', null]]
+};
+let goodPlan = {};
+async function callAI(prompt) {
+  const mode = mem.speed === 'quality' ? 'quality' : 'fast';
+  const plans = PLANS[mode];
+  let start = goodPlan[mode] || 0, last;
+  for (let i = start; i < plans.length; i++) {
+    const [model, level] = plans[i];
+    const gc = {
+      temperature: 0.8,
+      responseMimeType: 'application/json',
+      responseSchema: { type: 'ARRAY', items: { type: 'OBJECT',
+        properties: { tone: { type: 'STRING' }, text: { type: 'STRING' } }, required: ['tone', 'text'] } }
+    };
+    if (level) gc.thinkingConfig = { thinkingLevel: level };
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': mem.key },
+      body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: gc })
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok) { goodPlan[mode] = i; return data; }
+    last = errText(r.status, data);
+    if (r.status !== 400 && r.status !== 404) break; // 키·한도 문제는 바로 알림
+  }
+  throw new Error(last);
 }
 
 function errText(code, d) {
